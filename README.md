@@ -1,2 +1,2 @@
 # Phoenix.Bot.Proactive
-A service to proactively notify bot users about any updates
+A WebApp to proactively brodcast messages to users from their school, or notify them about any updates

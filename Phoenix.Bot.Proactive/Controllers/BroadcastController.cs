@@ -7,7 +7,9 @@ using Newtonsoft.Json.Linq;
 using Phoenix.DataHandle.Main;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
+using System;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -42,27 +44,63 @@ namespace Phoenix.Bot.Proactive.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Get(int id, bool force = false, bool include_backend = false)
+        [Route("id/{broadcastId}")]
+        public async Task<IActionResult> Get(int broadcastId, bool force = false, bool includeBackend = false)
         {
-            //TODO: Convert DayPart to the correct local time
-            //TODO: Support more channels than just Facebook
-
             Broadcast broadcast;
             try
             {
-                broadcast = await broadcastRepository.Find(id);
+                broadcast = await broadcastRepository.Find(broadcastId);
             }
-            catch 
+            catch
             {
                 return new BadRequestResult();
             }
 
-            if (broadcast.Status == BroadcastStatus.Sent && !force)
-                return new OkResult();
+            try
+            {
+                await SendBroadcast(broadcast, force, includeBackend);
+            }
+            catch
+            {
+                return new StatusCodeResult((int)HttpStatusCode.InternalServerError);
+            }
+
+            return new OkResult();
+        }
+
+        [HttpGet]
+        [Route("daypart/{daypart}")]
+        public async Task<IActionResult> Get(Daypart daypart, bool force = false, bool includeBackend = false)
+        {
+            //TODO: Take into account local time in DayPart
+
+            var today = DateTimeOffset.UtcNow.Date;
+            var broadcasts = broadcastRepository.FindForDateDaypart(today, daypart);
+
+            try
+            {
+                foreach (var broadcast in broadcasts)
+                    await SendBroadcast(broadcast, force, includeBackend);
+            }
+            catch
+            {
+                return new StatusCodeResult((int)HttpStatusCode.InternalServerError);
+            }
+
+            return new OkResult();
+        }
+
+        private async Task SendBroadcast(Broadcast broadcast, bool forceSend = false, bool includeBackend = false)
+        {
+            //TODO: Support more channels than just Facebook
+
+            if (broadcast.Status == BroadcastStatus.Sent && !forceSend)
+                return;
             if (broadcast.Visibility == BroadcastVisibility.Hidden)
-                return new OkResult();
+                return;
             if (broadcast.Audience == BroadcastAudience.None)
-                return new OkResult();
+                return;
 
             broadcast.Status = BroadcastStatus.Failed;
             broadcastRepository.Update(broadcast);
@@ -76,9 +114,9 @@ namespace Phoenix.Bot.Proactive.Controllers
             if (broadcast.Visibility == BroadcastVisibility.Group)
             {
                 switch (broadcast.Audience)
-                {   
+                {
                     case BroadcastAudience.Students:
-                    case BroadcastAudience.Parents:                   
+                    case BroadcastAudience.Parents:
                     case BroadcastAudience.StudentsParents:
                     case BroadcastAudience.StudentsStaff:
                     case BroadcastAudience.ParentsStaff:
@@ -87,7 +125,7 @@ namespace Phoenix.Bot.Proactive.Controllers
                 }
 
                 switch (broadcast.Audience)
-                {   
+                {
                     case BroadcastAudience.Parents:
                     case BroadcastAudience.StudentsParents:
                     case BroadcastAudience.ParentsStaff:
@@ -105,7 +143,7 @@ namespace Phoenix.Bot.Proactive.Controllers
                 }
 
                 users = broadcast.Audience switch
-                {   
+                {
                     BroadcastAudience.Students => students,
                     BroadcastAudience.Parents => parents,
                     BroadcastAudience.Staff => staff,
@@ -116,7 +154,7 @@ namespace Phoenix.Bot.Proactive.Controllers
                     _ => users
                 };
 
-                if (!include_backend)
+                if (!includeBackend)
                     users = users.Where(u => !u.AspNetUserRoles.Any(ur => ur.Role.Type.IsBackend()));
             }
             else if (broadcast.Visibility == BroadcastVisibility.Global)
@@ -137,7 +175,7 @@ namespace Phoenix.Bot.Proactive.Controllers
                         BroadcastAudience.ParentsStaff => RoleExtensions.GetStaffRoles().Append(Role.Parent).ToArray()
                     };
 
-                    if (include_backend)
+                    if (includeBackend)
                         visRoles = visRoles.Concat(RoleExtensions.GetBackendRoles()).ToArray();
 
                     users = users.Where(u => u.AspNetUserRoles.Any(ur => visRoles.Contains(ur.Role.Type)));
@@ -148,10 +186,10 @@ namespace Phoenix.Bot.Proactive.Controllers
                 SelectMany(u => u.AspNetUserLogins).
                 Where(ul => ul.LoginProvider == LoginProvider.Facebook.ToString() && ul.IsActive).
                 Select(ul => ul.ProviderKey);
-            
+
             BroadcastMessage = broadcast.Message;
             string fbPageId = (await schoolRepository.Find(broadcast.SchoolId)).FacebookPageId;
-            
+
             ConversationReference convRef = new()
             {
                 Bot = new ChannelAccount(id: fbPageId),
@@ -169,8 +207,6 @@ namespace Phoenix.Bot.Proactive.Controllers
 
             broadcast.Status = BroadcastStatus.Sent;
             broadcastRepository.Update(broadcast);
-
-            return new OkResult();
         }
 
         private async Task BotCallback(ITurnContext turnContext, CancellationToken cancellationToken)

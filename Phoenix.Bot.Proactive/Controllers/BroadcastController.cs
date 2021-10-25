@@ -43,9 +43,10 @@ namespace Phoenix.Bot.Proactive.Controllers
             userRepository.Include(u => u.User);
         }
 
-        [HttpGet]
+        [HttpPost]
         [Route("id/{broadcastId:int}")]
-        public async Task<IActionResult> GetByBroadcastId(int broadcastId, bool force = false, bool includeBackend = false)
+        public async Task<IActionResult> PostByBroadcastId(int broadcastId,
+            [FromForm] bool force = false, [FromForm] bool includeBackend = false)
         {
             Broadcast broadcast;
             try
@@ -69,9 +70,10 @@ namespace Phoenix.Bot.Proactive.Controllers
             return new OkResult();
         }
 
-        [HttpGet]
+        [HttpPost]
         [Route("daypart/{daypartNum:int:range(0, 4)}")]
-        public async Task<IActionResult> GetByDaypart(int daypartNum, bool force = false, bool includeBackend = false)
+        public async Task<IActionResult> PostByDaypart(int daypartNum,
+             [FromForm] bool force = false, [FromForm] bool includeBackend = false)
         {
             //TODO: Take into account local time in DayPart
 
@@ -159,8 +161,9 @@ namespace Phoenix.Bot.Proactive.Controllers
                     _ => users
                 };
 
+                var backendRoles = RoleExtensions.GetBackendRoles().ToArray();
                 if (!includeBackend)
-                    users = users.Where(u => !u.AspNetUserRoles.Any(ur => ur.Role.Type.IsBackend()));
+                    users = users.Where(u => !u.AspNetUserRoles.Any(ur => backendRoles.Contains(ur.Role.Type)));
             }
             else if (broadcast.Visibility == BroadcastVisibility.Global)
             {

@@ -27,7 +27,7 @@ namespace Phoenix.Bot.Proactive.Controllers
         private readonly AspNetUserRepository userRepository;
 
         private string BroadcastMessage { get; set; }
-        private string NotificationType { get; set; } = "REGULAR"; //REGULAR, SILENT_PUSH, NO_PUSH
+        private const string NotificationType = "REGULAR"; //REGULAR, SILENT_PUSH, NO_PUSH
 
         public BroadcastController(IBotFrameworkHttpAdapter adapter, 
             IConfiguration configuration, 
@@ -44,8 +44,8 @@ namespace Phoenix.Bot.Proactive.Controllers
         }
 
         [HttpGet]
-        [Route("id/{broadcastId}")]
-        public async Task<IActionResult> Get(int broadcastId, bool force = false, bool includeBackend = false)
+        [Route("id/{broadcastId:int}")]
+        public async Task<IActionResult> GetByBroadcastId(int broadcastId, bool force = false, bool includeBackend = false)
         {
             Broadcast broadcast;
             try
@@ -70,13 +70,18 @@ namespace Phoenix.Bot.Proactive.Controllers
         }
 
         [HttpGet]
-        [Route("daypart/{daypart}")]
-        public async Task<IActionResult> Get(Daypart daypart, bool force = false, bool includeBackend = false)
+        [Route("daypart/{daypartNum:int:range(0, 4)}")]
+        public async Task<IActionResult> GetByDaypart(int daypartNum, bool force = false, bool includeBackend = false)
         {
             //TODO: Take into account local time in DayPart
 
-            var today = DateTimeOffset.UtcNow.Date;
-            var broadcasts = broadcastRepository.FindForDateDaypart(today, daypart);
+            //if (!Enum.IsDefined(typeof(Daypart), daypartNum))
+            //    return new BadRequestResult();
+
+            Daypart daypart = (Daypart)daypartNum;
+            DateTime today = DateTimeOffset.UtcNow.Date;
+
+            var broadcasts = broadcastRepository.FindForDateDaypart(today, daypart).ToList();
 
             try
             {
@@ -88,7 +93,7 @@ namespace Phoenix.Bot.Proactive.Controllers
                 return new StatusCodeResult((int)HttpStatusCode.InternalServerError);
             }
 
-            return new OkResult();
+            return new OkObjectResult(broadcasts.Count);
         }
 
         private async Task SendBroadcast(Broadcast broadcast, bool forceSend = false, bool includeBackend = false)
@@ -164,7 +169,6 @@ namespace Phoenix.Bot.Proactive.Controllers
 
                 if (broadcast.Audience != BroadcastAudience.All)
                 {
-
                     Role[] visRoles = broadcast.Audience switch
                     {
                         BroadcastAudience.Students => new[] { Role.Student },

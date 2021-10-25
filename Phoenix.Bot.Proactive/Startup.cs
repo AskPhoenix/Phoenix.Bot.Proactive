@@ -27,6 +27,7 @@ namespace Phoenix.Bot.Proactive
 
             services.AddDbContext<PhoenixContext>(options => options.UseLazyLoadingProxies().UseSqlServer(Configuration.GetConnectionString("PhoenixConnection")));
             services.AddDbContext<BotDataContext>(options => options.UseSqlServer(Configuration.GetConnectionString("PhoenixConnection")));
+            services.AddApplicationInsightsTelemetry(Configuration["APPINSIGHTS_CONNECTIONSTRING"]);
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

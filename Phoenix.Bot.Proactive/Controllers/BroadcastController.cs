@@ -39,14 +39,11 @@ namespace Phoenix.Bot.Proactive.Controllers
             this.broadcastRepository = new BroadcastRepository(phoenixContext);
             this.schoolRepository = new SchoolRepository(phoenixContext);
             this.userRepository = new AspNetUserRepository(phoenixContext);
-
-            userRepository.Include(u => u.User);
         }
 
         [HttpPost]
         [Route("id/{broadcastId:int}")]
-        public async Task<IActionResult> PostByBroadcastId(int broadcastId,
-            [FromForm] bool force = false, [FromForm] bool includeBackend = false)
+        public async Task<IActionResult> PostByBroadcastIdAsync(int broadcastId)
         {
             Broadcast broadcast;
             try
@@ -60,7 +57,7 @@ namespace Phoenix.Bot.Proactive.Controllers
 
             try
             {
-                await SendBroadcast(broadcast, force, includeBackend);
+                await SendBroadcastAsync(broadcast, force: true);
             }
             catch
             {
@@ -71,9 +68,8 @@ namespace Phoenix.Bot.Proactive.Controllers
         }
 
         [HttpPost]
-        [Route("daypart/{daypartNum:int:range(0, 4)}")]
-        public async Task<IActionResult> PostByDaypart(int daypartNum,
-             [FromForm] bool force = false, [FromForm] bool includeBackend = false)
+        [Route("daypart/{daypartNum:int:range(1, 4)}")]
+        public async Task<IActionResult> PostByDaypartAsync(int daypartNum)
         {
             //TODO: Take into account local time in DayPart
 
@@ -88,7 +84,7 @@ namespace Phoenix.Bot.Proactive.Controllers
             try
             {
                 foreach (var broadcast in broadcasts)
-                    await SendBroadcast(broadcast, force, includeBackend);
+                    await SendBroadcastAsync(broadcast);
             }
             catch
             {
@@ -98,11 +94,11 @@ namespace Phoenix.Bot.Proactive.Controllers
             return new OkObjectResult(broadcasts.Count);
         }
 
-        private async Task SendBroadcast(Broadcast broadcast, bool forceSend = false, bool includeBackend = false)
+        private async Task SendBroadcastAsync(Broadcast broadcast, bool force = false)
         {
             //TODO: Support more channels than just Facebook
 
-            if (broadcast.Status == BroadcastStatus.Sent && !forceSend)
+            if (broadcast.Status == BroadcastStatus.Sent && !force)
                 return;
             if (broadcast.Visibility == BroadcastVisibility.Hidden)
                 return;
@@ -161,9 +157,8 @@ namespace Phoenix.Bot.Proactive.Controllers
                     _ => users
                 };
 
-                var backendRoles = RoleExtensions.GetBackendRoles().ToArray();
-                if (!includeBackend)
-                    users = users.Where(u => !u.AspNetUserRoles.Any(ur => backendRoles.Contains(ur.Role.Type)));
+                var superRoles = RoleExtensions.GetSuperRoles().ToArray();
+                users = users.Where(u => !u.AspNetUserRoles.Any(ur => superRoles.Contains(ur.Role.Type)));
             }
             else if (broadcast.Visibility == BroadcastVisibility.Global)
             {
@@ -182,9 +177,7 @@ namespace Phoenix.Bot.Proactive.Controllers
                         BroadcastAudience.ParentsStaff => RoleExtensions.GetStaffRoles().Append(Role.Parent).ToArray()
                     };
 
-                    if (includeBackend)
-                        visRoles = visRoles.Concat(RoleExtensions.GetBackendRoles()).ToArray();
-
+                    visRoles = visRoles.Concat(RoleExtensions.GetSchoolBackendRoles()).ToArray();
                     users = users.Where(u => u.AspNetUserRoles.Any(ur => visRoles.Contains(ur.Role.Type)));
                 }
             }

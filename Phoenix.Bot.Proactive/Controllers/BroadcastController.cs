@@ -9,7 +9,6 @@ using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
 using System;
 using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -45,6 +44,8 @@ namespace Phoenix.Bot.Proactive.Controllers
         [Route("id/{broadcastId:int}")]
         public async Task<IActionResult> PostByBroadcastIdAsync(int broadcastId)
         {
+            bool success = false;
+
             Broadcast broadcast;
             try
             {
@@ -58,13 +59,15 @@ namespace Phoenix.Bot.Proactive.Controllers
             try
             {
                 await SendBroadcastAsync(broadcast, force: true);
+                success = true;
             }
             catch
             {
-                return new StatusCodeResult((int)HttpStatusCode.InternalServerError);
+                broadcast.Status = BroadcastStatus.Failed;
+                broadcastRepository.Update(broadcast);
             }
 
-            return new OkResult();
+            return new OkObjectResult(success);
         }
 
         [HttpPost]
@@ -76,36 +79,42 @@ namespace Phoenix.Bot.Proactive.Controllers
             //if (!Enum.IsDefined(typeof(Daypart), daypartNum))
             //    return new BadRequestResult();
 
+            int successNum = 0;
+
             Daypart daypart = (Daypart)daypartNum;
             DateTime today = DateTimeOffset.UtcNow.Date;
 
             var broadcasts = broadcastRepository.FindForDateDaypart(today, daypart).ToList();
 
-            try
+            foreach (var broadcast in broadcasts)
             {
-                foreach (var broadcast in broadcasts)
+                try
+                {
                     await SendBroadcastAsync(broadcast);
+                    successNum++;
+                }
+                catch
+                {
+                    broadcast.Status = BroadcastStatus.Failed;
+                    broadcastRepository.Update(broadcast);
+                }
             }
-            catch
-            {
-                return new StatusCodeResult((int)HttpStatusCode.InternalServerError);
-            }
-
-            return new OkObjectResult(broadcasts.Count);
+            
+            return new OkObjectResult(successNum);
         }
 
         private async Task SendBroadcastAsync(Broadcast broadcast, bool force = false)
         {
             //TODO: Support more channels than just Facebook
 
-            if (broadcast.Status == BroadcastStatus.Sent && !force)
+            if ((broadcast.Status == BroadcastStatus.Succeeded || broadcast.Status == BroadcastStatus.Cancelled) && !force)
                 return;
             if (broadcast.Visibility == BroadcastVisibility.Hidden)
                 return;
             if (broadcast.Audience == BroadcastAudience.None)
                 return;
 
-            broadcast.Status = BroadcastStatus.Failed;
+            broadcast.Status = BroadcastStatus.Processing;
             broadcastRepository.Update(broadcast);
 
             // Find users to receive the message
@@ -205,7 +214,8 @@ namespace Phoenix.Bot.Proactive.Controllers
                 await ((BotAdapter)Adapter).ContinueConversationAsync(BotAppId, convRef, BotCallback, default);
             }
 
-            broadcast.Status = BroadcastStatus.Sent;
+            broadcast.SentAt = DateTimeOffset.UtcNow;
+            broadcast.Status = BroadcastStatus.Succeeded;
             broadcastRepository.Update(broadcast);
         }
 

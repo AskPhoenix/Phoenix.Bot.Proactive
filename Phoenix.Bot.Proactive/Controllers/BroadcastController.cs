@@ -226,7 +226,7 @@ namespace Phoenix.Bot.Proactive.Controllers
 
         private async Task BotCallback(ITurnContext turnContext, CancellationToken cancellationToken)
         {
-            var activity = MessageFactory.SuggestedActions(new[] { "🏠 Αρχική" }, "📢 Ανακοίνωση: " + BroadcastMessage);
+            var activity = MessageFactory.SuggestedActions(new[] { "👍 OK" }, "📢 Ανακοίνωση: " + BroadcastMessage);
             activity.ChannelData = JObject.FromObject(new { notification_type = NotificationType });
 
             await turnContext.SendActivityAsync(activity);

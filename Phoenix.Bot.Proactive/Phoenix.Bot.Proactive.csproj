@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <Version>2.0.0-beta.6</Version>
+    <Version>2.0.0</Version>
     <Authors>AskPhoenix</Authors>
     <Company>AskPhoenix</Company>
     <Product>AskPhoenix</Product>
@@ -25,7 +25,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="3.1.20" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="3.1.20" />
     <PackageReference Include="Microsoft.Bot.Builder.Integration.AspNet.Core" Version="4.14.1" />
-    <PackageReference Include="Phoenix.DataHandle" Version="2.1.0-beta.12" />
+    <PackageReference Include="Phoenix.DataHandle" Version="2.1.0" />
   </ItemGroup>
 
     <ItemGroup>

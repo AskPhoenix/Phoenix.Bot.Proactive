@@ -8,6 +8,8 @@ using Phoenix.DataHandle.Main;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
 using System;
+using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,8 +47,8 @@ namespace Phoenix.Bot.Proactive.Controllers
         public async Task<IActionResult> PostByBroadcastIdAsync(int broadcastId)
         {
             bool success = false;
-
             Broadcast broadcast;
+
             try
             {
                 broadcast = await broadcastRepository.Find(broadcastId);
@@ -72,7 +74,7 @@ namespace Phoenix.Bot.Proactive.Controllers
 
         [HttpPost]
         [Route("daypart/{daypartNum:int:range(1, 4)}")]
-        public async Task<IActionResult> PostByDaypartAsync(int daypartNum)
+        public async Task<IActionResult> PostByDaypartAsync(int daypartNum, [FromForm] string date)
         {
             //TODO: Take into account local time in DayPart
 
@@ -80,11 +82,14 @@ namespace Phoenix.Bot.Proactive.Controllers
             //    return new BadRequestResult();
 
             int successNum = 0;
-
             Daypart daypart = (Daypart)daypartNum;
-            DateTime today = DateTimeOffset.UtcNow.Date;
 
-            var broadcasts = broadcastRepository.FindForDateDaypart(today, daypart).ToList();
+            DateTime d = DateTime.Today;
+            if (!string.IsNullOrEmpty(date) &&
+                !DateTime.TryParseExact(date, "dd-MM-yyyy", null, DateTimeStyles.AllowWhiteSpaces, out d))
+                    return new BadRequestResult();
+
+            var broadcasts = broadcastRepository.FindForDateDaypart(d, daypart).ToList();
 
             foreach (var broadcast in broadcasts)
             {

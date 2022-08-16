@@ -1,95 +1,76 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Bot.Builder;
 using Microsoft.Bot.Builder.Integration.AspNet.Core;
 using Microsoft.Bot.Schema;
-using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json.Linq;
-using Phoenix.DataHandle.Main;
+using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Main.Types;
 using Phoenix.DataHandle.Repositories;
-using System;
-using System.ComponentModel.DataAnnotations;
 using System.Globalization;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Phoenix.Bot.Proactive.Controllers
 {
-    [Route("broadcast")]
+    [Authorize(AuthenticationSchemes = "Bearer")]
     [ApiController]
+    [Route("api/broadcast")]
     public class BroadcastController : ControllerBase
     {
-        private readonly IBotFrameworkHttpAdapter Adapter;
-        private readonly string BotAppId;
+        private readonly CloudAdapter _adapter;
+        private readonly ApplicationUserManager _userManager;
+        private readonly BroadcastRepository _broadcastRepository;
+        private readonly string _botAppId;
 
-        private readonly BroadcastRepository broadcastRepository;
-        private readonly SchoolRepository schoolRepository;
-        private readonly AspNetUserRepository userRepository;
-
-        private string BroadcastMessage { get; set; }
         private const string NotificationType = "REGULAR"; //REGULAR, SILENT_PUSH, NO_PUSH
 
-        public BroadcastController(IBotFrameworkHttpAdapter adapter, 
-            IConfiguration configuration, 
-            PhoenixContext phoenixContext)
-        {
-            Adapter = adapter;
-            BotAppId = configuration["MicrosoftAppId"] ?? string.Empty;
+        private string BroadcastMessage { get; set; } = null!;
 
-            this.broadcastRepository = new BroadcastRepository(phoenixContext);
-            this.schoolRepository = new SchoolRepository(phoenixContext);
-            this.userRepository = new AspNetUserRepository(phoenixContext);
+        public BroadcastController(
+            IBotFrameworkHttpAdapter adapter,
+            ApplicationUserManager userManager, 
+            PhoenixContext phoenixContext,
+            IConfiguration configuration)
+        {
+            _adapter = (CloudAdapter)adapter;
+            _userManager = userManager;
+            _broadcastRepository = new(phoenixContext);
+            _botAppId = configuration["MicrosoftAppId"] ?? string.Empty;
         }
 
         [HttpPost]
-        [Route("id/{broadcastId:int}")]
-        public async Task<IActionResult> PostByBroadcastIdAsync(int broadcastId)
+        [Route("{id}")]
+        public async Task<IActionResult> PostByBroadcastIdAsync(int id)
         {
-            bool success = false;
-            Broadcast broadcast;
-
-            try
-            {
-                broadcast = await broadcastRepository.Find(broadcastId);
-            }
-            catch
-            {
-                return new BadRequestResult();
-            }
+            var broadcast = await _broadcastRepository.FindPrimaryAsync(id);
+            if (broadcast is null)
+                return NotFound();
 
             try
             {
                 await SendBroadcastAsync(broadcast, force: true);
-                success = true;
             }
             catch
             {
                 broadcast.Status = BroadcastStatus.Failed;
-                broadcastRepository.Update(broadcast);
+                await _broadcastRepository.UpdateAsync(broadcast);
             }
 
-            return new OkObjectResult(success);
+            return Ok(broadcast.Status);
         }
 
         [HttpPost]
-        [Route("daypart/{daypartNum:int:range(1, 4)}")]
-        public async Task<IActionResult> PostByDaypartAsync(int daypartNum, [FromForm] string date)
+        [Route("daypart/{daypart}")]
+        public async Task<IActionResult> PostByDaypartAsync(Daypart daypart, string? date = null)
         {
-            //TODO: Take into account local time in DayPart
-
-            //if (!Enum.IsDefined(typeof(Daypart), daypartNum))
-            //    return new BadRequestResult();
-
             int successNum = 0;
-            Daypart daypart = (Daypart)daypartNum;
+            var d = DateTime.UtcNow.Date;
 
-            DateTime d = DateTime.Today;
-            if (!string.IsNullOrEmpty(date) &&
-                !DateTime.TryParseExact(date, "dd-MM-yyyy", null, DateTimeStyles.AllowWhiteSpaces, out d))
-                    return new BadRequestResult();
+            if (!string.IsNullOrEmpty(date))
+                if (!DateTime.TryParseExact(date, "dd-MM-yyyy", null, DateTimeStyles.AllowWhiteSpaces, out d))
+                    return BadRequest("Date string is malformed. Format it as dd-MM-yyyy");
 
-            var broadcasts = broadcastRepository.FindForDateDaypart(d, daypart).ToList();
+            var broadcasts = _broadcastRepository.Search(d, daypart);
 
             foreach (var broadcast in broadcasts)
             {
@@ -101,17 +82,15 @@ namespace Phoenix.Bot.Proactive.Controllers
                 catch
                 {
                     broadcast.Status = BroadcastStatus.Failed;
-                    broadcastRepository.Update(broadcast);
+                    await _broadcastRepository.UpdateAsync(broadcast);
                 }
             }
             
-            return new OkObjectResult(successNum);
+            return Ok(successNum);
         }
 
         private async Task SendBroadcastAsync(Broadcast broadcast, bool force = false)
         {
-            //TODO: Support more channels than just Facebook
-
             if ((broadcast.Status == BroadcastStatus.Succeeded || broadcast.Status == BroadcastStatus.Cancelled) && !force)
                 return;
             if (broadcast.Visibility == BroadcastVisibility.Hidden)
@@ -120,116 +99,89 @@ namespace Phoenix.Bot.Proactive.Controllers
                 return;
 
             broadcast.Status = BroadcastStatus.Processing;
-            broadcastRepository.Update(broadcast);
+            await _broadcastRepository.UpdateAsync(broadcast);
 
-            // Find users to receive the message
-            IQueryable<AspNetUsers> users = Enumerable.Empty<AspNetUsers>().AsQueryable();
-            var students = Enumerable.Empty<AspNetUsers>().AsQueryable();
-            var parents = Enumerable.Empty<AspNetUsers>().AsQueryable();
-            var staff = Enumerable.Empty<AspNetUsers>().AsQueryable();
+            var users = broadcast.Visibility == BroadcastVisibility.Group && broadcast.CourseId is not null
+                ? broadcast.Course.Users.ToArray()
+                : broadcast.School.Users.ToArray();
 
-            if (broadcast.Visibility == BroadcastVisibility.Group)
+            var audience = new List<User>(users.Length);
+
+            if (broadcast.Audience == BroadcastAudience.Everyone)
+                audience.AddRange(users);
+            else
             {
-                switch (broadcast.Audience)
-                {
-                    case BroadcastAudience.Students:
-                    case BroadcastAudience.Parents:
-                    case BroadcastAudience.StudentsParents:
-                    case BroadcastAudience.StudentsStaff:
-                    case BroadcastAudience.ParentsStaff:
-                        students = userRepository.FindStudentsForCourse((int)broadcast.CourseId);
-                        break;
-                }
+                var appUsers = new ApplicationUser[users.Length];
+                for (int i = 0; i < users.Length; i++)
+                    appUsers[i] = await _userManager.FindByIdAsync(users[i].AspNetUserId.ToString());
 
-                switch (broadcast.Audience)
+                bool toAdd = false;
+                for (int i = 0; i < users.Length; i++, toAdd = false)
                 {
-                    case BroadcastAudience.Parents:
-                    case BroadcastAudience.StudentsParents:
-                    case BroadcastAudience.ParentsStaff:
-                        parents = userRepository.FindParents(students.Select(s => s.Id).ToList());
-                        break;
-                }
+                    var userRoles = await _userManager.GetRoleRanksAsync(appUsers[i]);
 
-                switch (broadcast.Audience)
-                {
-                    case BroadcastAudience.Staff:
-                    case BroadcastAudience.StudentsStaff:
-                    case BroadcastAudience.ParentsStaff:
-                        staff = userRepository.FindTeachersForCourse((int)broadcast.CourseId);
-                        break;
-                }
-
-                users = broadcast.Audience switch
-                {
-                    BroadcastAudience.Students => students,
-                    BroadcastAudience.Parents => parents,
-                    BroadcastAudience.Staff => staff,
-                    BroadcastAudience.StudentsParents => students.Concat(parents),
-                    BroadcastAudience.StudentsStaff => students.Concat(staff),
-                    BroadcastAudience.ParentsStaff => parents.Concat(staff),
-                    BroadcastAudience.All => userRepository.FindAllForCourse((int)broadcast.CourseId),
-                    _ => users
-                };
-
-                var superRoles = RoleExtensions.GetSuperRoles().ToArray();
-                users = users.Where(u => !u.AspNetUserRoles.Any(ur => superRoles.Contains(ur.Role.Type)));
-            }
-            else if (broadcast.Visibility == BroadcastVisibility.Global)
-            {
-                users = userRepository.Find().
-                    Where(u => u.UserSchool.Any(us => us.SchoolId == broadcast.SchoolId));
-
-                if (broadcast.Audience != BroadcastAudience.All)
-                {
-                    Role[] visRoles = broadcast.Audience switch
+                    toAdd = userRoles.Any(rr => rr.IsSuper());
+                    
+                    toAdd |= broadcast.Audience switch
                     {
-                        BroadcastAudience.Students => new[] { Role.Student },
-                        BroadcastAudience.Parents => new[] { Role.Parent },
-                        BroadcastAudience.Staff => RoleExtensions.GetStaffRoles().ToArray(),
-                        BroadcastAudience.StudentsParents => new[] { Role.Student, Role.Parent },
-                        BroadcastAudience.StudentsStaff => RoleExtensions.GetStaffRoles().Append(Role.Student).ToArray(),
-                        BroadcastAudience.ParentsStaff => RoleExtensions.GetStaffRoles().Append(Role.Parent).ToArray()
+                        BroadcastAudience.Students          => userRoles.Any(rr => rr == RoleRank.Student),
+                        BroadcastAudience.Parents           => userRoles.Any(rr => rr == RoleRank.Parent),
+                        BroadcastAudience.Staff             => userRoles.Any(rr => rr.IsStaff()),
+                        BroadcastAudience.StudentsParents   => userRoles.Any(rr => rr == RoleRank.Student || rr == RoleRank.Parent),
+                        BroadcastAudience.StudentsStaff     => userRoles.Any(rr => rr == RoleRank.Student || rr.IsStaff()),
+                        BroadcastAudience.ParentsStaff      => userRoles.Any(rr => rr == RoleRank.Parent || rr.IsStaff()),
+                        _ => false
                     };
 
-                    visRoles = visRoles.Concat(RoleExtensions.GetSchoolBackendRoles()).ToArray();
-                    users = users.Where(u => u.AspNetUserRoles.Any(ur => visRoles.Contains(ur.Role.Type)));
+                    if (toAdd)
+                        audience.Add(users[i]);
+                }
+            }
+            
+            var userKeys = audience.SelectMany(u => u.UserConnections)
+                .Where(uc => uc.Channel == ChannelProvider.Facebook.ToString())
+                .Where(uc => uc.ActivatedAt.HasValue)
+                .Select(uc => uc.ChannelKey);
+
+            BroadcastMessage = broadcast.Message;
+
+            var schoolKeys = broadcast.School
+                .SchoolConnections
+                .Where(sc => sc.Channel == ChannelProvider.Facebook.ToString())
+                .Select(sc => sc.ChannelKey);
+
+            foreach (var userKey in userKeys)
+            {
+                foreach (var schoolKey in schoolKeys)
+                {
+                    var convRef = new ConversationReference()
+                    {
+                        Bot = new(id: schoolKey),
+                        User = new(id: userKey),
+                        Conversation = new(id: $"{userKey}-{schoolKey}"),
+                        ChannelId = "facebook",
+                        ServiceUrl = "https://facebook.botframework.com/"
+                    };
+
+                    await _adapter.ContinueConversationAsync(_botAppId, convRef, BotCallback, default);
                 }
             }
 
-            var userProviderKeys = users.
-                SelectMany(u => u.AspNetUserLogins).
-                Where(ul => ul.LoginProvider == LoginProvider.Facebook.ToString() && ul.IsActive).
-                Select(ul => ul.ProviderKey);
-
-            BroadcastMessage = broadcast.Message;
-            string fbPageId = (await schoolRepository.Find(broadcast.SchoolId)).FacebookPageId;
-
-            ConversationReference convRef = new()
-            {
-                Bot = new ChannelAccount(id: fbPageId),
-                ChannelId = "facebook",
-                ServiceUrl = "https://facebook.botframework.com/"
-            };
-
-            foreach (var userKey in userProviderKeys)
-            {
-                convRef.Conversation = new(id: $"{userKey}-{fbPageId}");
-                convRef.User = new(id: userKey);
-
-                await ((BotAdapter)Adapter).ContinueConversationAsync(BotAppId, convRef, BotCallback, default);
-            }
-
-            broadcast.SentAt = DateTimeOffset.UtcNow;
+            broadcast.SentAt = DateTime.UtcNow;
             broadcast.Status = BroadcastStatus.Succeeded;
-            broadcastRepository.Update(broadcast);
+
+            await _broadcastRepository.UpdateAsync(broadcast);
         }
 
-        private async Task BotCallback(ITurnContext turnContext, CancellationToken cancellationToken)
+        private async Task BotCallback(ITurnContext turnCtx,
+            CancellationToken canTkn)
         {
-            var activity = MessageFactory.SuggestedActions(new[] { "👍 OK" }, "📢 Ανακοίνωση: " + BroadcastMessage);
+            var activity = MessageFactory.SuggestedActions(
+                new[] { "👍 OK" }, "📢 Ανακοίνωση: " + BroadcastMessage);
+
             activity.ChannelData = JObject.FromObject(new { notification_type = NotificationType });
 
-            await turnContext.SendActivityAsync(activity);
+            await turnCtx.SendActivityAsync(activity);
         }
     }
 }

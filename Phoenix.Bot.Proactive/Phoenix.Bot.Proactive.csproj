@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <_WebToolingArtifacts Remove="Properties\PublishProfiles\Phalarida.Production.pubxml" />
+    <_WebToolingArtifacts Remove="Properties\PublishProfiles\Phalarida.Staging.pubxml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,7 +24,11 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.*" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="6.0.*" />
     <PackageReference Include="Microsoft.Bot.Builder.Integration.AspNet.Core" Version="4.17.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="6.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Proxies" Version="6.0.*" />
     <PackageReference Include="Phoenix.DataHandle" Version="3.0.0-beta1.*" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="6.4.*" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="6.4.*" />
   </ItemGroup>
 
 </Project>

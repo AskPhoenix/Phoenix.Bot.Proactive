@@ -1,37 +1,29 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <Version>2.0.0</Version>
+    <Version>3.0.0</Version>
     <Authors>AskPhoenix</Authors>
-    <Company>AskPhoenix</Company>
-    <Product>AskPhoenix</Product>
     <Description>A WebApp to proactively brodcast messages to users from their school, or notify them about any updates</Description>
-    <Copyright>AskPhoenix 2021</Copyright>
+    <Copyright>AskPhoenix 2022</Copyright>
     <PackageProjectUrl>https://www.askphoenix.gr/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/AskPhoenix/Phoenix.Bot.Proactive</RepositoryUrl>
-    <UserSecretsId>938e5df0-29b1-43ed-b89f-38bcb3397836</UserSecretsId>
-    <ApplicationInsightsResourceId>/subscriptions/158d7265-c8df-4fbd-96df-1d003a650372/resourceGroups/PhoenixRsrcG/providers/microsoft.insights/components/Proactive_Insights</ApplicationInsightsResourceId>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
-    <_WebToolingArtifacts Remove="Properties\PublishProfiles\Proactive.pubxml" />
+    <_WebToolingArtifacts Remove="Properties\PublishProfiles\Phalarida.Production.pubxml" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Bot.Builder.Community.Storage.EntityFramework" Version="4.13.2" />
-    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.18.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="3.1.20" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="3.1.20" />
-    <PackageReference Include="Microsoft.Bot.Builder.Integration.AspNet.Core" Version="4.14.1" />
-    <PackageReference Include="Phoenix.DataHandle" Version="2.1.0" />
-  </ItemGroup>
-
-    <ItemGroup>
-    <Content Update="appsettings.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
+    <PackageReference Include="Bot.Builder.Community.Storage.EntityFramework" Version="4.13.*" />
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.21.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="6.0.*" />
+    <PackageReference Include="Microsoft.Bot.Builder.Integration.AspNet.Core" Version="4.17.*" />
+    <PackageReference Include="Phoenix.DataHandle" Version="3.0.0-beta1.*" />
   </ItemGroup>
 
 </Project>

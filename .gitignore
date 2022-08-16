@@ -303,4 +303,4 @@ __pycache__/
 **/database/
 **/uploads/
 **/logs/
-**/appsettings.Development.json
+**/appsettings.*.json
